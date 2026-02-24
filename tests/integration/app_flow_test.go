@@ -180,3 +180,17 @@ func (m *mockServer) deleteNames() []string {
 	copy(out, m.deleted)
 	return out
 }
+
+func TestAppFlowCronNoToken(t *testing.T) {
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	code := app.Run([]string{
+		"--cron", "*/10 * * * *",
+	}, strings.NewReader(""), stdout, stderr)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit code")
+	}
+	if !strings.Contains(stderr.String(), "cron 无人值守模式下缺少管理 token") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}

@@ -8,5 +8,7 @@
   "retries": 1,
   "user_agent": "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal",
   "chatgpt_account_id": "",
-  "output": "invalid_codex_accounts.json"
+  "output": "invalid_codex_accounts.json",
+  "cron": "*/2 * * * *",
+  "token" : ""
 }

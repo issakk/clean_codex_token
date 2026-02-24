@@ -42,6 +42,7 @@ type Options struct {
 	UserAgent        string
 	ChatgptAccountID string
 	Output           string
+	Cron             string
 	Delete           bool
 	DeleteFromOutput bool
 	Yes              bool

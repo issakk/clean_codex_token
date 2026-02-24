@@ -61,6 +61,26 @@ go build -o clean-codex-accounts ./cmd/clean-codex-accounts
   --output "invalid_codex_accounts.json"
 ```
 
+### 3.4 无人值守 cron 定时执行（检查401并自动删除）
+
+```bash
+./clean-codex-accounts \
+  --token "你的管理token" \
+  --base-url "http://127.0.0.1:8317" \
+  --cron "*/10 * * * *"
+```
+
+- `--cron` 使用 5 段表达式（分 时 日 月 周）
+- 启用后将进入无人值守循环模式，并固定为“检查401并自动删除”
+- cron 模式下会自动跳过删除确认（等价 `--yes`）
+- cron 模式下必须提供 token（`--token`、`MGMT_TOKEN` 或 `--har`）
+
+常见示例：
+
+- 每 10 分钟：`*/10 * * * *`
+- 每天 03:30：`30 3 * * *`
+
+
 ## 4. 交互模式
 
 如果你不传 `--delete` 且不传 `--delete-from-output`，程序会进入菜单：
@@ -127,6 +147,7 @@ go build -o clean-codex-accounts ./cmd/clean-codex-accounts
 - `--timeout` 请求超时秒数（默认 12）
 - `--retries` 探测失败重试次数（默认 1）
 - `--output` 输出 JSON 文件（默认 `invalid_codex_accounts.json`）
+- `--cron` cron表达式（5段），无人值守定时执行“检查401并自动删除”
 - `--delete` 检查后删除
 - `--delete-from-output` 从 output 直接删除
 - `--yes` 删除时跳过 `DELETE` 二次确认

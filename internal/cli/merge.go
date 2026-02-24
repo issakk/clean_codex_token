@@ -43,6 +43,9 @@ func MergeOptions(opts *model.Options, conf map[string]any, harCtx *model.HarCon
 	if v, ok := conf["output"].(string); ok && v != "" && opts.Output == model.DefaultOutput {
 		opts.Output = v
 	}
+	if v, ok := conf["cron"].(string); ok && v != "" && opts.Cron == "" {
+		opts.Cron = v
+	}
 
 	if harCtx != nil {
 		if opts.Token == "" && harCtx.Token != "" {

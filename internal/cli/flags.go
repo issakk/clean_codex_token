@@ -24,6 +24,7 @@ func ParseFlags(args []string) *model.Options {
 	fs.StringVar(&opts.UserAgent, "user-agent", model.DefaultUA, "")
 	fs.StringVar(&opts.ChatgptAccountID, "chatgpt-account-id", os.Getenv("CHATGPT_ACCOUNT_ID"), "")
 	fs.StringVar(&opts.Output, "output", model.DefaultOutput, "")
+	fs.StringVar(&opts.Cron, "cron", "", "cron表达式（5段），开启后以无人值守方式定时执行401检测并删除")
 	fs.BoolVar(&opts.Delete, "delete", false, "开启后执行删除")
 	fs.BoolVar(&opts.DeleteFromOutput, "delete-from-output", false, "从 output 文件读取账号直接删除（跳过401检测）")
 	fs.BoolVar(&opts.Yes, "yes", false, "删除时跳过二次确认")
