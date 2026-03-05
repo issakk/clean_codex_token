@@ -27,25 +27,31 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 		return nil, err
 	}
 
-	candidates := make([]model.AuthFile, 0)
-	for _, f := range files {
+	matchCandidate := func(f model.AuthFile) bool {
 		if strings.ToLower(mgmt.GetItemType(f)) != strings.ToLower(opts.TargetType) {
-			continue
+			return false
 		}
 		if opts.Provider != "" {
 			p, _ := f["provider"].(string)
 			if strings.ToLower(p) != strings.ToLower(opts.Provider) {
-				continue
+				return false
 			}
 		}
-		candidates = append(candidates, f)
+		return true
+	}
+
+	candidateCount := 0
+	for _, f := range files {
+		if matchCandidate(f) {
+			candidateCount++
+		}
 	}
 
 	progress(fmt.Sprintf("总账号数: %d", len(files)))
-	progress(fmt.Sprintf("符合过滤条件账号数: %d", len(candidates)))
+	progress(fmt.Sprintf("符合过滤条件账号数: %d", candidateCount))
 	progress(fmt.Sprintf("异步检测并发: workers=%d, timeout=%ds, retries=%d", opts.Workers, opts.Timeout, opts.Retries))
 
-	if len(candidates) == 0 {
+	if candidateCount == 0 {
 		if err := writeJSON(opts.Output, []model.ProbeResult{}); err != nil {
 			return nil, err
 		}
@@ -57,9 +63,16 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 	if workers < 1 {
 		workers = 1
 	}
+	if workers > candidateCount {
+		workers = candidateCount
+	}
+	if workers > 64 {
+		workers = 64
+		progress("workers 过大，已自动限制为 64 以降低 CPU/内存压力")
+	}
 
-	taskCh := make(chan model.AuthFile)
-	resultCh := make(chan model.ProbeResult, len(candidates))
+	taskCh := make(chan model.AuthFile, workers*2)
+	resultCh := make(chan model.ProbeResult, workers*2)
 	var wg sync.WaitGroup
 
 	for i := 0; i < workers; i++ {
@@ -73,35 +86,31 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 	}
 
 	go func() {
-		for _, c := range candidates {
-			taskCh <- c
+		for _, f := range files {
+			if matchCandidate(f) {
+				taskCh <- f
+			}
 		}
 		close(taskCh)
 		wg.Wait()
 		close(resultCh)
 	}()
 
-	results := make([]model.ProbeResult, 0, len(candidates))
-	done := 0
-	nextReport := 100
-	total := len(candidates)
-	for r := range resultCh {
-		results = append(results, r)
-		done++
-		if done >= nextReport || done == total {
-			progress(fmt.Sprintf("检测进度: %d/%d", done, total))
-			nextReport += 100
-		}
-	}
-
 	invalid := make([]model.ProbeResult, 0)
 	failed := 0
-	for _, r := range results {
+	done := 0
+	nextReport := 100
+	for r := range resultCh {
+		done++
 		if r.Invalid401 {
 			invalid = append(invalid, r)
 		}
 		if r.Error != "" {
 			failed++
+		}
+		if done >= nextReport || done == candidateCount {
+			progress(fmt.Sprintf("检测进度: %d/%d", done, candidateCount))
+			nextReport += 100
 		}
 	}
 
