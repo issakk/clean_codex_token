@@ -21,6 +21,23 @@ func NewService(client *mgmt.Client) *Service {
 	return &Service{Client: client}
 }
 
+// errorCounter 用于统计每个 auth_index 的探测异常次数
+type errorCounter struct {
+	mu     sync.RWMutex
+	counts map[string]int
+}
+
+func newErrorCounter() *errorCounter {
+	return &errorCounter{counts: make(map[string]int)}
+}
+
+func (ec *errorCounter) Increment(authIndex string) int {
+	ec.mu.Lock()
+	defer ec.mu.Unlock()
+	ec.counts[authIndex]++
+	return ec.counts[authIndex]
+}
+
 func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(string)) ([]model.ProbeResult, error) {
 	files, err := s.Client.FetchAuthFiles(ctx)
 	if err != nil {
@@ -75,12 +92,14 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 	resultCh := make(chan model.ProbeResult, workers*2)
 	var wg sync.WaitGroup
 
+	ec := newErrorCounter()
+
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for item := range taskCh {
-				resultCh <- s.probeOneWithRetry(ctx, item, opts)
+				resultCh <- s.probeOneWithRetry(ctx, item, opts, ec)
 			}
 		}()
 	}
@@ -97,6 +116,7 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 	}()
 
 	invalid := make([]model.ProbeResult, 0)
+	invalidByError := 0
 	failed := 0
 	done := 0
 	nextReport := 100
@@ -105,7 +125,11 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 		if r.Invalid401 {
 			invalid = append(invalid, r)
 		}
-		if r.Error != "" {
+		if r.InvalidByError {
+			invalid = append(invalid, r)
+			invalidByError++
+		}
+		if r.Error != "" && !r.InvalidByError {
 			failed++
 		}
 		if done >= nextReport || done == candidateCount {
@@ -115,9 +139,13 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 	}
 
 	sort.Slice(invalid, func(i, j int) bool { return invalid[i].Name < invalid[j].Name })
-	progress(fmt.Sprintf("探测完成: 401失效=%d，探测异常=%d", len(invalid), failed))
+	progress(fmt.Sprintf("探测完成: 401失效=%d，异常10次=%d，探测异常=%d", len(invalid)-invalidByError, invalidByError, failed))
 	for _, r := range invalid {
-		progress(fmt.Sprintf("[401] %s | account=%s | auth_index=%s", r.Name, r.Account, r.AuthIndex))
+		if r.InvalidByError {
+			progress(fmt.Sprintf("[ERR] %s | account=%s | auth_index=%s | error_count=%d", r.Name, r.Account, r.AuthIndex, r.ErrorCount))
+		} else {
+			progress(fmt.Sprintf("[401] %s | account=%s | auth_index=%s", r.Name, r.Account, r.AuthIndex))
+		}
 	}
 
 	if err := writeJSON(opts.Output, invalid); err != nil {
@@ -127,7 +155,7 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 	return invalid, nil
 }
 
-func (s *Service) probeOneWithRetry(ctx context.Context, item model.AuthFile, opts *model.Options) model.ProbeResult {
+func (s *Service) probeOneWithRetry(ctx context.Context, item model.AuthFile, opts *model.Options, ec *errorCounter) model.ProbeResult {
 	authIndex, _ := item["auth_index"].(string)
 	name, _ := item["name"].(string)
 	if name == "" {
@@ -161,6 +189,12 @@ func (s *Service) probeOneWithRetry(ctx context.Context, item model.AuthFile, op
 		if err != nil {
 			result.Error = err.Error()
 			if attempt >= opts.Retries {
+				// 重试耗尽，增加异常计数
+				errCount := ec.Increment(authIndex)
+				result.ErrorCount = errCount
+				if errCount >= 10 {
+					result.InvalidByError = true
+				}
 				return result
 			}
 			continue
@@ -170,6 +204,12 @@ func (s *Service) probeOneWithRetry(ctx context.Context, item model.AuthFile, op
 			result.StatusCode = nil
 			result.Invalid401 = false
 			result.Error = "missing status_code in api-call response"
+			// 响应异常也计入错误次数
+			errCount := ec.Increment(authIndex)
+			result.ErrorCount = errCount
+			if errCount >= 10 {
+				result.InvalidByError = true
+			}
 			return result
 		}
 		result.StatusCode = &sc

@@ -11,14 +11,16 @@ const (
 type AuthFile map[string]any
 
 type ProbeResult struct {
-	Name       string `json:"name"`
-	Account    string `json:"account"`
-	AuthIndex  string `json:"auth_index"`
-	Type       string `json:"type"`
-	Provider   string `json:"provider"`
-	StatusCode *int   `json:"status_code"`
-	Invalid401 bool   `json:"invalid_401"`
-	Error      string `json:"error"`
+	Name           string `json:"name"`
+	Account        string `json:"account"`
+	AuthIndex      string `json:"auth_index"`
+	Type           string `json:"type"`
+	Provider       string `json:"provider"`
+	StatusCode     *int   `json:"status_code"`
+	Invalid401     bool   `json:"invalid_401"`
+	Error          string `json:"error"`
+	ErrorCount     int    `json:"error_count,omitempty"`
+	InvalidByError bool   `json:"invalid_by_error,omitempty"`
 }
 
 type DeleteResult struct {
