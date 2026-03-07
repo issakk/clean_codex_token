@@ -21,6 +21,7 @@ type ProbeResult struct {
 	Error          string `json:"error"`
 	ErrorCount     int    `json:"error_count,omitempty"`
 	InvalidByError bool   `json:"invalid_by_error,omitempty"`
+	InvalidByLimit bool   `json:"invalid_by_limit,omitempty"`
 }
 
 type DeleteResult struct {

@@ -117,6 +117,7 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 
 	invalid := make([]model.ProbeResult, 0)
 	invalidByError := 0
+	invalidByLimit := 0
 	failed := 0
 	done := 0
 	nextReport := 100
@@ -129,6 +130,10 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 			invalid = append(invalid, r)
 			invalidByError++
 		}
+		if r.InvalidByLimit {
+			invalid = append(invalid, r)
+			invalidByLimit++
+		}
 		if r.Error != "" && !r.InvalidByError {
 			failed++
 		}
@@ -139,10 +144,12 @@ func (s *Service) Run(ctx context.Context, opts *model.Options, progress func(st
 	}
 
 	sort.Slice(invalid, func(i, j int) bool { return invalid[i].Name < invalid[j].Name })
-	progress(fmt.Sprintf("探测完成: 401失效=%d，异常10次=%d，探测异常=%d", len(invalid)-invalidByError, invalidByError, failed))
+	progress(fmt.Sprintf("探测完成: 401失效=%d，异常10次=%d，限额为0=%d，探测异常=%d", len(invalid)-invalidByError-invalidByLimit, invalidByError, invalidByLimit, failed))
 	for _, r := range invalid {
 		if r.InvalidByError {
 			progress(fmt.Sprintf("[ERR] %s | account=%s | auth_index=%s | error_count=%d", r.Name, r.Account, r.AuthIndex, r.ErrorCount))
+		} else if r.InvalidByLimit {
+			progress(fmt.Sprintf("[LIMIT] %s | account=%s | auth_index=%s | limit=0", r.Name, r.Account, r.AuthIndex))
 		} else {
 			progress(fmt.Sprintf("[401] %s | account=%s | auth_index=%s", r.Name, r.Account, r.AuthIndex))
 		}
@@ -215,6 +222,12 @@ func (s *Service) probeOneWithRetry(ctx context.Context, item model.AuthFile, op
 		result.StatusCode = &sc
 		result.Invalid401 = sc == 401
 		result.Error = ""
+
+		// 检查限额是否为 0
+		if isLimitZero(data) {
+			result.InvalidByLimit = true
+		}
+
 		return result
 	}
 
@@ -243,4 +256,32 @@ func asInt(v any) (int, bool) {
 func str(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// isLimitZero 检查响应数据中的限额是否为 0
+// 探测接口返回的数据结构: {"status_code": 200, "body": "..."}
+// body 是 JSON 字符串，包含 usage 信息
+func isLimitZero(data map[string]any) bool {
+	bodyStr, ok := data["body"].(string)
+	if !ok {
+		return false
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal([]byte(bodyStr), &body); err != nil {
+		return false
+	}
+
+	// 检查 usage 对象中的 limit 字段
+	usage, ok := body["usage"].(map[string]any)
+	if !ok {
+		return false
+	}
+
+	limit, ok := asInt(usage["limit"])
+	if !ok {
+		return false
+	}
+
+	return limit == 0
 }
